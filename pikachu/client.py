@@ -66,7 +66,7 @@ class AMQPClient:
         channel = connection.channel()
         exchange = config.get("exchange", "direct")
         channel.exchange_declare(exchange=exchange, durable=True)
-        AMQPClient.queue_declare(channel, queue, config)
+        AMQPClient._queue_declare(channel, queue, config)
         channel.queue_bind(queue=queue, exchange=exchange)
         if "prefetch_count" in config:
             channel.basic_qos(prefetch_count=config["prefetch_count"])
@@ -78,7 +78,8 @@ class AMQPClient:
         url = f"amqp://{host}"
         connection = pika.BlockingConnection(pika.URLParameters(url))
 
-        config = yaml.load("amqp-config.yml")
+        with open("amqp-config.yml", "r") as f:
+            config = yaml.safe_load(f)
         queue_prefix = environ["MESSAGING_AMQP_QUEUE_PREFIX"]
 
         consumer_configs = config["consumers"]
@@ -98,5 +99,5 @@ class AMQPClient:
 
     def get_queue_size(self):
         channel, exchange, queue = self.consumers[0]
-        res = AMQPClient.queue_declare(channel, queue, {"passive": True})
+        res = AMQPClient._queue_declare(channel, queue, {"passive": True})
         return res.method.message_count
