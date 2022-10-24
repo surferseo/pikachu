@@ -2,7 +2,6 @@ import timeout
 from json import dumps, loads
 from pikachu.cuda_utils import is_oom_cuda_error, is_cuda_error
 from pikachu.client import AMQPClient
-from pikachu.basic_consume import SAFE_MESSAGE_TIMEOUT
 
 SAFE_MESSAGE_TIMEOUT = (
     29 * 60
