@@ -1,28 +1,24 @@
-import timeout
 from json import dumps, loads
 from pikachu.cuda_utils import is_oom_cuda_error, is_cuda_error
 from pikachu.client import AMQPClient
 
-SAFE_MESSAGE_TIMEOUT = (
-    29 * 60
-)  # 29 minutes because broker's delivery timeout is 30 minutes by default, -1 for safety
+# TODO handle broker timeout (possibly without spawning a new process)
 
 
-@timeout.timeout(duration=SAFE_MESSAGE_TIMEOUT)
 def handle_message(
     client,
     consumed_message,
-    method,
     message_function,
-    logger,
+    models=None,
     request_id_name="request_id",
+    logger=None,
 ):
     method, _properties, message_txt = consumed_message
     message_json = loads(message_txt)
     request_id = message_json[request_id_name]
     logger.info(f"[*] Received {request_id_name}: {request_id}.")
     try:
-        result = message_function(message_json)
+        result = message_function(message_json, models)
         logger.info(f"[*] Done request id: {request_id}.")
         client.publish_and_ack(
             method.delivery_tag, dumps({request_id_name: request_id, "result": result})
@@ -39,7 +35,7 @@ def handle_message(
         client.publish_and_ack(method.delivery_tag, result)
 
 
-def start(logger, message_function, request_id_name="request_id"):
+def start(message_function, models=None, request_id_name="request_id", logger=None):
     client = AMQPClient.from_config()
 
     for consumed_message in client.consume():
@@ -47,8 +43,9 @@ def start(logger, message_function, request_id_name="request_id"):
             client,
             consumed_message,
             message_function,
-            logger,
+            models=models,
             request_id_name=request_id_name,
+            logger=logger,
         )
 
     client.teardown()

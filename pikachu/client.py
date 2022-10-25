@@ -38,7 +38,7 @@ class AMQPClient:
 
     def _publish(self, message):
         channel, exchange, queue = self.producers[0]
-        self.onnection.add_callback_threadsafe(
+        self.connection.add_callback_threadsafe(
             functools.partial(
                 channel.basic_publish,
                 exchange=exchange,
