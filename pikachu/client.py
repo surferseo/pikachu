@@ -61,6 +61,24 @@ class AMQPClient:
         )
 
     @staticmethod
+    def _resolve_scheme(port):
+        if port == "5672":
+            return "amqp"
+        if port == "5671":
+            return "amqps"
+
+    @staticmethod
+    def _build_url():
+        scheme = AMQPClient._resolve_scheme(environ["MESSAGING_AMQP_PORT"])
+        username = environ["MESSAGING_AMQP_USERNAME"]
+        password = environ["MESSAGING_AMQP_PASSWORD"]
+        authentication_credentials = f"{username}:{password}"
+        host = environ["MESSAGING_AMQP_HOST"]
+        virtual_host = environ["MESSAGING_AMQP_VIRTUAL_HOST"]
+
+        return f"{scheme}://{authentication_credentials}@{host}{virtual_host}"
+
+    @staticmethod
     def _from_config(config, connection, queue_prefix):
         queue = queue_prefix + config["queue"]
         channel = connection.channel()
@@ -74,8 +92,7 @@ class AMQPClient:
 
     @staticmethod
     def from_config():
-        host = environ["MESSAGING_AMQP_HOST"]
-        url = f"amqp://{host}"
+        url = AMQPClient._build_url()
         connection = pika.BlockingConnection(pika.URLParameters(url))
 
         with open("amqp-config.yml", "r") as f:
