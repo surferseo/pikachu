@@ -1,8 +1,10 @@
 from json import dumps, loads
 from pikachu.cuda_utils import is_oom_cuda_error, is_cuda_error
 from pikachu.client import AMQPClient
+import traceback
 
 # TODO handle broker timeout (possibly without spawning a new process)
+# TODO handle failing messages
 
 
 def handle_message(
@@ -18,11 +20,10 @@ def handle_message(
     request_id = message_json[request_id_name]
     logger.info(f"[*] Received {request_id_name}: {request_id}.")
     try:
-        result = message_function(message_json, models)
+        result_dict = message_function(message_json, models)
         logger.info(f"[*] Done request id: {request_id}.")
-        client.publish_and_ack(
-            method.delivery_tag, dumps({request_id_name: request_id, "result": result})
-        )
+        result_dict.update({request_id_name: request_id})
+        client.publish_and_ack(method.delivery_tag, dumps(result_dict))
     except Exception as e:
         if is_cuda_error(e) and not is_oom_cuda_error(e):
             # if something is wrong with CUDA, further consuming is pointless
@@ -31,7 +32,7 @@ def handle_message(
             f"[*] Failed {request_id_name}: {request_id}. Publishing empty result to the response queue.",
             exc_info=True,
         )
-        result = dumps({request_id_name: request_id, "result": []})
+        result = dumps({request_id_name: request_id, "error": traceback.format_exc()})
         client.publish_and_ack(method.delivery_tag, result)
 
 
