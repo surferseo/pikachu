@@ -36,7 +36,7 @@ class AMQPClient:
             functools.partial(channel.basic_ack, delivery_tag=delivery_tag)
         )
 
-    def _publish(self, message):
+    def publish(self, message):
         channel, exchange, queue = self.producers[0]
         self.connection.add_callback_threadsafe(
             functools.partial(
@@ -51,13 +51,26 @@ class AMQPClient:
         )
 
     def publish_and_ack(self, delivery_tag, response_message):
-        self._publish(response_message)
+        self.publish(response_message)
         self._ack(delivery_tag)
 
+    def reject(self, delivery_tag, requeue=True):
+        channel, exchange, queue = self.consumers[0]
+        self.connection.add_callback_threadsafe(
+            functools.partial(
+                channel.basic_reject,
+                delivery_tag=delivery_tag,
+                requeue=requeue,
+            )
+        )
+
     @staticmethod
-    def _queue_declare(channel, queue, config):
+    def _queue_declare(channel, queue, config, arguments=None):
         return channel.queue_declare(
-            queue=queue, durable=True, passive=config.get("passive")
+            queue=queue,
+            durable=True,
+            passive=config.get("passive"),
+            arguments=arguments,
         )
 
     @staticmethod
@@ -66,6 +79,23 @@ class AMQPClient:
             return "amqp"
         if port == "5671":
             return "amqps"
+
+    @staticmethod
+    def _set_dlx(channel, queue_config, queue_prefix, queue_name):
+        """
+        Check https://www.rabbitmq.com/dlx.html to meet the concept.
+        """
+        if "dlx" in queue_config:
+            dlx_config = queue_config["dlx"]
+            dlx_exchange = dlx_config["exchange"]
+            dlx_queue = queue_prefix + dlx_config["queue"]
+            arguments = {
+                "x-dead-letter-exchange": dlx_exchange,
+            }
+            channel.exchange_declare(dlx_exchange, "direct")
+            channel.queue_declare(dlx_queue)
+            channel.queue_bind(dlx_queue, dlx_exchange, queue_name)
+            return arguments
 
     @staticmethod
     def _build_url():
@@ -84,7 +114,8 @@ class AMQPClient:
         channel = connection.channel()
         exchange = config.get("exchange", "direct")
         channel.exchange_declare(exchange=exchange, durable=True)
-        AMQPClient._queue_declare(channel, queue, config)
+        dlx_arguments = AMQPClient._set_dlx(channel, config, queue_prefix, queue)
+        AMQPClient._queue_declare(channel, queue, config, arguments=dlx_arguments)
         channel.queue_bind(queue=queue, exchange=exchange)
         if "prefetch_count" in config:
             channel.basic_qos(prefetch_count=config["prefetch_count"])

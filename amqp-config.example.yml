@@ -1,0 +1,8 @@
+consumers:
+  - queue: terms_assistant_requests
+    prefetch_count: 1
+    dlx:
+      exchange: dlx
+      queue: terms_assistant_dead-letter-queue
+producers:
+  - queue: terms_assistant_responses
