@@ -8,12 +8,16 @@ def assert_cuda_is_available():
         assert torch.cuda.is_available()
 
 
-def is_oom_cuda_error(e):
+def _is_oom_cuda_error(e):
     return "CUDA out of memory" in str(e)
 
 
-def is_cuda_error(e):
+def _is_cuda_error(e):
     return "CUDA" in str(e)
+
+
+def is_unknown_cuda_error(e):
+    return _is_cuda_error(e) and not _is_oom_cuda_error(e)
 
 
 def device():
