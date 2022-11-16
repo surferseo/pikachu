@@ -6,7 +6,6 @@ import functools
 
 logging.getLogger("pika").setLevel(logging.WARNING)
 
-# TODO Oban support https://github.com/surferseo/brief/pull/17#pullrequestreview-1170548768
 # TODO connection retries https://github.com/surferseo/content-planner-clusterer/commit/216d5dbc20961e48f832fe81c11ddff783d5aef5
 
 
@@ -39,22 +38,21 @@ class AMQPClient:
             functools.partial(channel.basic_ack, delivery_tag=delivery_tag)
         )
 
-    def publish(self, message):
+    def publish(self, properties, message):
         channel, exchange, queue, config = self.producers[0]
+        routing_key = properties.headers.get("reply_to", queue)
         self.connection.add_callback_threadsafe(
             functools.partial(
                 channel.basic_publish,
                 exchange=exchange,
-                routing_key=queue,
+                routing_key=routing_key,
                 body=message,
-                properties=pika.BasicProperties(
-                    content_type="application/json", delivery_mode=1
-                ),
+                properties=properties,
             )
         )
 
-    def publish_and_ack(self, delivery_tag, response_message):
-        self.publish(response_message)
+    def publish_and_ack(self, delivery_tag, properties, response_message):
+        self.publish(properties, response_message)
         self._ack(delivery_tag)
 
     def reject(self, delivery_tag, requeue=True):

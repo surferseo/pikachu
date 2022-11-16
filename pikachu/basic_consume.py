@@ -43,7 +43,7 @@ def handle_result(
     logger,
     future,
 ):
-    method, _properties, message_txt = consumed_message
+    method, properties, message_txt = consumed_message
     delivery_tag = method.delivery_tag
     message_json = loads(message_txt)
     request_id = message_json[request_id_name]
@@ -51,7 +51,7 @@ def handle_result(
         result_dict = future.result()
         logger.info(f"[*] Done request id: {request_id}.")
         result_dict.update({request_id_name: request_id})
-        client.publish_and_ack(delivery_tag, dumps(result_dict))
+        client.publish_and_ack(delivery_tag, properties, dumps(result_dict))
     except Exception as e:
         if is_unknown_cuda_error(e):
             # if something is wrong with CUDA, further consuming is pointless
@@ -74,7 +74,7 @@ def handle_result(
                 {request_id_name: request_id, "error": traceback.format_exc()}
             )
             client.reject(delivery_tag, requeue=False)
-            client.publish(result)
+            client.publish(properties, result)
 
 
 def start(
@@ -97,7 +97,7 @@ def start(
             if message == MAINTENANCE_MESSAGE:
                 continue
 
-            method, _properties, message_txt = message
+            method, properties, message_txt = message
             message_json = loads(message_txt)
             request_id = message_json[request_id_name]
             logger.info(f"[*] Received {request_id_name}: {request_id}.")
