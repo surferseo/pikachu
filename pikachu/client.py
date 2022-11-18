@@ -93,7 +93,7 @@ class AMQPClient:
             arguments = {
                 "x-dead-letter-exchange": dlx_exchange,
             }
-            channel.exchange_declare(dlx_exchange, "")
+            channel.exchange_declare(dlx_exchange, "direct")
             channel.queue_declare(dlx_queue)
             channel.queue_bind(dlx_queue, dlx_exchange, queue_name)
             return arguments
@@ -114,10 +114,8 @@ class AMQPClient:
         queue = queue_prefix + config["queue"]
         channel = connection.channel()
         exchange = config.get("exchange", "")
-        channel.exchange_declare(exchange=exchange, durable=True)
         dlx_arguments = AMQPClient._set_dlx(channel, config, queue_prefix, queue)
         AMQPClient._queue_declare(channel, queue, config, arguments=dlx_arguments)
-        channel.queue_bind(queue=queue, exchange=exchange)
         if "prefetch_count" in config:
             channel.basic_qos(prefetch_count=config["prefetch_count"])
         return (channel, exchange, queue, config)
