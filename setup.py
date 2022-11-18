@@ -8,7 +8,7 @@ with open("requirements.txt", "r") as fh:
 
 setuptools.setup(
     name="pikachu",
-    version="0.0.1",
+    version="0.0.2",
     author="Maciej Gruszczyński",
     author_email="maciejgruszczysnki@surferseo.com",
     description="Wrapper around pika inspired by lapin for convenient AMQP operations in Python APIs",
