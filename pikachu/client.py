@@ -4,21 +4,20 @@ import pika
 import logging
 import functools
 
-logging.getLogger("pika").setLevel(logging.WARNING)
+LOGGER = logging.getLogger("pika")
+LOGGER.setLevel(logging.WARNING)
 
 # TODO connection retries https://github.com/surferseo/content-planner-clusterer/commit/216d5dbc20961e48f832fe81c11ddff783d5aef5
 
+DEFAULT_EXCHANGE = ""
+
 
 class AMQPClient:
-    def __init__(
-        self,
-        connection,
-        consumers,
-        producers,
-    ):
+    def __init__(self, connection, consumers, producers, producers_channel):
         self.connection = connection
         self.consumers = consumers
         self.producers = producers
+        self.producers_channel = producers_channel
 
     def teardown(self):
         for consumer in self.consumers:
@@ -39,8 +38,15 @@ class AMQPClient:
         )
 
     def publish(self, properties, message):
-        channel, exchange, queue, config = self.producers[0]
+        if self.producers:
+            channel, exchange, queue, config = self.producers[0]
+        else:
+            channel = self.producers_channel
+            exchange = DEFAULT_EXCHANGE
+            queue = None
         routing_key = properties.headers.get("reply_to", queue)
+        if not routing_key:
+            raise ValueError("reply_to is not set in the message properties")
         self.connection.add_callback_threadsafe(
             functools.partial(
                 channel.basic_publish,
@@ -64,6 +70,15 @@ class AMQPClient:
                 requeue=requeue,
             )
         )
+
+    def get_queue_size(self):
+        channel, exchange, queue, config = self.consumers[0]
+        res = AMQPClient._queue_declare(channel, queue, {"passive": True})
+        return res.method.message_count
+
+    def get_prefetch_count(self):
+        channel, exchange, queue, config = self.consumers[0]
+        return config["prefetch_count"]
 
     @staticmethod
     def _queue_declare(channel, queue, config, arguments=None):
@@ -113,11 +128,29 @@ class AMQPClient:
     def _from_config(config, connection, queue_prefix):
         queue = queue_prefix + config["queue"]
         channel = connection.channel()
-        exchange = config.get("exchange", "")
+        exchange = config.get("exchange", DEFAULT_EXCHANGE)
         dlx_arguments = AMQPClient._set_dlx(channel, config, queue_prefix, queue)
         AMQPClient._queue_declare(channel, queue, config, arguments=dlx_arguments)
         if "prefetch_count" in config:
             channel.basic_qos(prefetch_count=config["prefetch_count"])
+        return (channel, exchange, queue, config)
+
+    @staticmethod
+    def _consumer_from_config(config, connection, queue_prefix):
+        queue = queue_prefix + config["queue"]
+        channel = connection.channel()
+        exchange = config.get("exchange", DEFAULT_EXCHANGE)
+        dlx_arguments = AMQPClient._set_dlx(channel, config, queue_prefix, queue)
+        AMQPClient._queue_declare(channel, queue, config, arguments=dlx_arguments)
+        if "prefetch_count" in config:
+            channel.basic_qos(prefetch_count=config["prefetch_count"])
+        return (channel, exchange, queue, config)
+
+    @staticmethod
+    def _producer_from_config(config, queue_prefix, channel):
+        queue = queue_prefix + config["queue"]
+        exchange = config.get("exchange", DEFAULT_EXCHANGE)
+        AMQPClient._queue_declare(channel, queue, config)
         return (channel, exchange, queue, config)
 
     @staticmethod
@@ -131,24 +164,18 @@ class AMQPClient:
 
         consumer_configs = config["consumers"]
         consumers = [
-            AMQPClient._from_config(consumer_config, connection, queue_prefix)
+            AMQPClient._consumer_from_config(consumer_config, connection, queue_prefix)
             for consumer_config in consumer_configs
         ]
 
-        producer_configs = config["producers"]
+        producers_channel = connection.channel()
+        producer_configs = config.get("producers", [])
         producers = [
-            AMQPClient._from_config(producer_config, connection, queue_prefix)
+            AMQPClient._producer_from_config(
+                producer_config, queue_prefix, producers_channel
+            )
             for producer_config in producer_configs
         ]
 
-        client = AMQPClient(connection, consumers, producers)
+        client = AMQPClient(connection, consumers, producers, producers_channel)
         return client
-
-    def get_queue_size(self):
-        channel, exchange, queue, config = self.consumers[0]
-        res = AMQPClient._queue_declare(channel, queue, {"passive": True})
-        return res.method.message_count
-
-    def get_prefetch_count(self):
-        channel, exchange, queue, config = self.consumers[0]
-        return config["prefetch_count"]
