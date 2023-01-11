@@ -115,12 +115,12 @@ class AMQPClient:
 
     @staticmethod
     def _build_url():
-        scheme = AMQPClient._resolve_scheme(environ["MESSAGING_AMQP_PORT"])
-        username = environ["MESSAGING_AMQP_USERNAME"]
-        password = environ["MESSAGING_AMQP_PASSWORD"]
+        scheme = AMQPClient._resolve_scheme(environ["AMQP_PORT"])
+        username = environ["AMQP_USERNAME"]
+        password = environ["AMQP_PASSWORD"]
         authentication_credentials = f"{username}:{password}"
-        host = environ["MESSAGING_AMQP_HOST"]
-        virtual_host = environ["MESSAGING_AMQP_VIRTUAL_HOST"]
+        host = environ["AMQP_HOST"]
+        virtual_host = environ["AMQP_VIRTUAL_HOST"]
 
         return f"{scheme}://{authentication_credentials}@{host}{virtual_host}"
 
@@ -160,7 +160,7 @@ class AMQPClient:
 
         with open("amqp-config.yml", "r") as f:
             config = yaml.safe_load(f)
-        queue_prefix = environ["MESSAGING_AMQP_QUEUE_PREFIX"]
+        queue_prefix = environ["AMQP_QUEUE_PREFIX"]
 
         consumer_configs = config["consumers"]
         consumers = [
