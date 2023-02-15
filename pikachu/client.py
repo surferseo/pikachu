@@ -3,6 +3,7 @@ from os import environ
 import pika
 import logging
 import functools
+import ssl
 
 LOGGER = logging.getLogger("pika")
 LOGGER.setLevel(logging.WARNING)
@@ -26,7 +27,7 @@ class AMQPClient:
             producer["channel"].close()
         self._connection.close()
 
-    def consume(self, inactivity_timeout):
+    def consume(self, inactivity_timeout=None):
         channel, exchange, queue, config = self.consumers[0]
         logging.info(f"[*] Waiting for messages in {queue}.")
         return channel.consume(queue=queue, inactivity_timeout=inactivity_timeout)
@@ -90,13 +91,6 @@ class AMQPClient:
         )
 
     @staticmethod
-    def _resolve_scheme(port):
-        if port == "5672":
-            return "amqp"
-        if port == "5671":
-            return "amqps"
-
-    @staticmethod
     def _set_dlx(channel, queue_config, queue_prefix, queue_name):
         """
         Check https://www.rabbitmq.com/dlx.html to meet the concept.
@@ -109,31 +103,9 @@ class AMQPClient:
                 "x-dead-letter-exchange": dlx_exchange,
             }
             channel.exchange_declare(dlx_exchange, "direct")
-            channel.queue_declare(dlx_queue)
+            channel.queue_declare(dlx_queue, durable=True)
             channel.queue_bind(dlx_queue, dlx_exchange, queue_name)
             return arguments
-
-    @staticmethod
-    def _build_url():
-        scheme = AMQPClient._resolve_scheme(environ["AMQP_PORT"])
-        username = environ["AMQP_USERNAME"]
-        password = environ["AMQP_PASSWORD"]
-        authentication_credentials = f"{username}:{password}"
-        host = environ["AMQP_HOST"]
-        virtual_host = environ["AMQP_VIRTUAL_HOST"]
-
-        return f"{scheme}://{authentication_credentials}@{host}{virtual_host}"
-
-    @staticmethod
-    def _from_config(config, connection, queue_prefix):
-        queue = queue_prefix + config["queue"]
-        channel = connection.channel()
-        exchange = config.get("exchange", DEFAULT_EXCHANGE)
-        dlx_arguments = AMQPClient._set_dlx(channel, config, queue_prefix, queue)
-        AMQPClient._queue_declare(channel, queue, config, arguments=dlx_arguments)
-        if "prefetch_count" in config:
-            channel.basic_qos(prefetch_count=config["prefetch_count"])
-        return (channel, exchange, queue, config)
 
     @staticmethod
     def _consumer_from_config(config, connection, queue_prefix):
@@ -154,11 +126,36 @@ class AMQPClient:
         return (channel, exchange, queue, config)
 
     @staticmethod
-    def from_config():
-        url = AMQPClient._build_url()
-        connection = pika.BlockingConnection(pika.URLParameters(url))
+    def _resolve_ssl_options(port):
+        if port == "5671":
+            return pika.SSLOptions(ssl.create_default_context())
+        if port == "5672":
+            return None
+        context = ssl.SSLContext()
+        context.verify_mode = (
+            ssl.CERT_NONE
+        )  # https://surferseo.slack.com/archives/C01UQ5WFM0W/p1676458794180459
+        return pika.SSLOptions(ssl.SSLContext())
 
-        with open("amqp-config.yml", "r") as f:
+    @staticmethod
+    def from_config(filename="amqp-config.yml"):
+        port = environ["AMQP_PORT"]
+        username = environ["AMQP_USERNAME"]
+        password = environ["AMQP_PASSWORD"]
+        host = environ["AMQP_HOST"]
+        virtual_host = environ["AMQP_VIRTUAL_HOST"]
+
+        connection_parameters = pika.ConnectionParameters(
+            ssl_options=AMQPClient._resolve_ssl_options(port),
+            host=host,
+            port=port,
+            virtual_host=virtual_host,
+            credentials=pika.PlainCredentials(username, password),
+        )
+
+        connection = pika.BlockingConnection(connection_parameters)
+
+        with open(filename, "r") as f:
             config = yaml.safe_load(f)
         queue_prefix = environ["AMQP_QUEUE_PREFIX"]
 
