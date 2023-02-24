@@ -8,13 +8,13 @@ with open("requirements.txt", "r") as fh:
 
 setuptools.setup(
     name="pikachu",
-    version="1.1",
+    version="1.2",
     author="Maciej Gruszczyński",
     author_email="maciejgruszczysnki@surferseo.com",
     description="Wrapper around pika inspired by lapin for convenient AMQP operations in Python APIs",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/surferseo/terms-assistant",
+    url="https://github.com/surferseo/pikachu",
     packages=["pikachu"],
     classifiers=[
         "Programming Language :: Python :: 3",
