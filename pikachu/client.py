@@ -143,7 +143,10 @@ class AMQPClient:
         username = environ["AMQP_USERNAME"]
         password = environ["AMQP_PASSWORD"]
         host = environ["AMQP_HOST"]
-        virtual_host = environ["AMQP_VIRTUAL_HOST"].strip("/")
+        virtual_host = (
+            environ["AMQP_VIRTUAL_HOST"].strip("/")
+            or pika.ConnectionParameters.DEFAULT_VIRTUAL_HOST
+        )
 
         connection_parameters = pika.ConnectionParameters(
             ssl_options=AMQPClient._resolve_ssl_options(port),
