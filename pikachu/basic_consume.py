@@ -2,7 +2,7 @@ from json import dumps, loads
 from pikachu.cuda_utils import is_unknown_cuda_error
 from pikachu.client import AMQPClient
 import traceback
-from pebble import ProcessPool
+from pebble import ProcessPool, ProcessFuture
 import functools
 
 DEFAULT_BROKER_TIMEOUT = (
@@ -41,24 +41,29 @@ def handle_result(
     consumed_message,
     request_id_name,
     logger,
-    future,
+    result,
 ):
     method, properties, message_txt = consumed_message
     delivery_tag = method.delivery_tag
     message_json = loads(message_txt)
     request_id = message_json[request_id_name]
     try:
-        result_dict = future.result()
+        if isinstance(result, ProcessFuture):
+            result = future.result()
         logger.info(f"[*] Done request id: {request_id}.")
-        result_dict.update({request_id_name: request_id})
-        client.publish_and_ack(delivery_tag, properties, dumps(result_dict))
+        result.update({request_id_name: request_id})
+        client.publish_and_ack(delivery_tag, properties, dumps(result))
     except Exception as e:
         if is_unknown_cuda_error(e):
             # if something is wrong with CUDA, further consuming is pointless
+            #
+            # when prefetch_count == 1 and there's no pool of processes, we pass the error from here to kill the app
+            #
+            # when prefetch_count > 1 and we have a pool of processes
             # we find this exception from consumer process and raise to restart the app
-            # we can't raise it from here and restart the app by design:
+            # we can't raise it from here (it will be ignored) and restart the app by design:
             # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.Future.add_done_callback
-            pass
+            raise e
         elif not method.redelivered:
             logger.error(
                 f"[*] Failed {request_id_name}: {request_id}. Redelivering.",
@@ -85,35 +90,46 @@ def start(
     timeout=DEFAULT_BROKER_TIMEOUT,
 ):
     client = AMQPClient.from_config()
-    mp_context = get_multiprocessing_context()
+    prefetch_count = client.get_prefetch_count()
 
-    with ProcessPool(
-        client.get_prefetch_count(),
-        context=mp_context,
-    ) as pool:
-        for message in client.consume(MAINTENANCE_TIMEOUT):
-            propagate_callback_cuda_exceptions(pool)
-
-            if message == MAINTENANCE_MESSAGE:
-                continue
-
+    if prefetch_count == 1:
+        for message in client.consume(None):
             method, properties, message_txt = message
             message_json = loads(message_txt)
             request_id = message_json[request_id_name]
             logger.info(f"[*] Received {request_id_name}: {request_id}.")
+            result = message_function(message_json, models)
+            handle_result(client, message, request_id_name, logger, result)
 
-            future = pool.schedule(
-                message_function,
-                (message_json, models),
-                timeout=timeout,
-            )
-            done_callback = functools.partial(
-                handle_result,
-                client,
-                message,
-                request_id_name,
-                logger,
-            )
-            future.add_done_callback(done_callback)
+    elif prefetch_count > 1:
+        mp_context = get_multiprocessing_context()
+        with ProcessPool(
+            prefetch_count,
+            context=mp_context,
+        ) as pool:
+            for message in client.consume(MAINTENANCE_TIMEOUT):
+                propagate_callback_cuda_exceptions(pool)
+
+                if message == MAINTENANCE_MESSAGE:
+                    continue
+
+                method, properties, message_txt = message
+                message_json = loads(message_txt)
+                request_id = message_json[request_id_name]
+                logger.info(f"[*] Received {request_id_name}: {request_id}.")
+
+                future = pool.schedule(
+                    message_function,
+                    (message_json, models),
+                    timeout=timeout,
+                )
+                done_callback = functools.partial(
+                    handle_result,
+                    client,
+                    message,
+                    request_id_name,
+                    logger,
+                )
+                future.add_done_callback(done_callback)
 
     client.teardown()
