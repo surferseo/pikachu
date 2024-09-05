@@ -49,7 +49,7 @@ def handle_result(
     request_id = message_json[request_id_name]
     try:
         if isinstance(result, ProcessFuture):
-            result = future.result()
+            result = result.result()
         logger.info(f"[*] Done request id: {request_id}.")
         result.update({request_id_name: request_id})
         client.publish_and_ack(delivery_tag, properties, dumps(result))
