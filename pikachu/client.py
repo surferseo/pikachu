@@ -8,8 +8,6 @@ import ssl
 LOGGER = logging.getLogger("pika")
 LOGGER.setLevel(logging.WARNING)
 
-# TODO connection retries https://github.com/surferseo/content-planner-clusterer/commit/216d5dbc20961e48f832fe81c11ddff783d5aef5
-
 DEFAULT_EXCHANGE = ""
 
 

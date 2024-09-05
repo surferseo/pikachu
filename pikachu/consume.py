@@ -1,10 +1,12 @@
 from json import dumps, loads
+import pika
 from pikachu.client import AMQPClient
 from pikachu.cuda_errors import is_unknown_cuda_error
 import traceback
 from pebble import ProcessPool, ProcessFuture
 import functools
 import importlib
+from retry import retry
 
 DEFAULT_BROKER_TIMEOUT = (
     29 * 60
@@ -13,6 +15,7 @@ MAINTENANCE_TIMEOUT = 5 * 60
 MAINTENANCE_MESSAGE = (None, None, None)
 
 
+@retry(pika.exceptions.AMQPConnectionError, delay=5)
 def start(
     message_function,
     models=None,
@@ -25,11 +28,11 @@ def start(
     prefetch_count = client.get_prefetch_count()
 
     if prefetch_count == 1:
-        start_consuming_single_message(
+        _start_consuming_single_message(
             client, message_function, models, request_id_name, logger
         )
     else:
-        start_consuming_multiple_messages(
+        _start_consuming_multiple_messages(
             client,
             message_function,
             models,
@@ -43,7 +46,7 @@ def start(
     client.teardown()
 
 
-def start_consuming_single_message(
+def _start_consuming_single_message(
     client, message_function, models, request_id_name, logger
 ):
     for message in client.consume(None):
@@ -55,7 +58,7 @@ def start_consuming_single_message(
         _handle_result(client, message, request_id_name, logger, result)
 
 
-def start_consuming_multiple_messages(
+def _start_consuming_multiple_messages(
     client,
     message_function,
     models,
@@ -142,11 +145,11 @@ def _handle_result(
         if is_unknown_cuda_error(e):
             # if something is wrong with CUDA, further consuming is pointless
             #
-            # when prefetch_count == 1 and there's no pool of processes, we pass the error from here to kill the app
+            # when prefetch_count == 1 and there's no pool of processes, we raise the error to kill the app
             #
             # when prefetch_count > 1 and we have a pool of processes
             # we find this exception from consumer process and raise to restart the app
-            # we can't raise it from here to restart the app, because it would be ignored by design:
+            # we can't successfuly raise it from here to restart the app, because it is ignored by design:
             # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.Future.add_done_callback
             raise e
         elif not method.redelivered:
