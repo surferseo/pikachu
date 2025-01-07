@@ -7,6 +7,7 @@ from pebble import ProcessPool, ProcessFuture
 import functools
 import importlib
 from retry import retry
+from pikachu.exception_serialization import ensure_exceptions_are_serializable
 
 DEFAULT_BROKER_TIMEOUT = (
     29 * 60
@@ -86,7 +87,7 @@ def _start_consuming_multiple_messages(
             logger.info(f"[*] Received {request_id_name}: {request_id}.")
 
             future = pool.schedule(
-                message_function,
+                functools.partial(ensure_exceptions_are_serializable, message_function),
                 (message_json, models),
                 timeout=timeout,
             )
@@ -138,7 +139,7 @@ def _handle_result(
     try:
         if isinstance(result, ProcessFuture):
             result = result.result()
-        logger.info(f"[*] Done request id: {request_id}.")
+        logger.info(f"[*] Done {request_id_name} {request_id}.")
         result.update({request_id_name: request_id})
         client.publish_and_ack(delivery_tag, properties, dumps(result))
     except Exception as e:
